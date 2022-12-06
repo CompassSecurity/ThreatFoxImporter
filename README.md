@@ -4,4 +4,4 @@ ThreatFoxImporter is an ARM template to import the IoCs (Indicators of Compromis
 
 ## Installation and Configuration
 
-See [our blog post](https://blog.compass-security.com/2022/11/the-threat-the-fox-and-the-sentinel/) for detailed instructions.
+See [our blog post](https://blog.compass-security.com/2022/12/the-threat-the-fox-and-the-sentinel/) for detailed instructions.
