@@ -1,0 +1,556 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "connection_name": {
+            "defaultValue": "microsoftgraphsecurityARM",
+            "type": "String"
+        },
+		"location": {
+            "defaultValue": "switzerlandnorth",
+            "type": "String"
+        },
+		"connectionDisplayName": {
+            "defaultValue": "ThreatImporterIdentity",
+            "type": "String"
+        },
+		"resourceGroupName": {
+            "defaultValue": "yourresourcegroup",
+            "type": "String"
+        },
+		"logicAppName": {
+            "defaultValue": "yourlogicapp",
+            "type": "String"
+        }
+    },
+    "variables": {},
+    "resources": [
+        {
+            "type": "Microsoft.Web/connections",
+            "apiVersion": "2016-06-01",
+            "name": "[parameters('connection_name')]",
+            "location": "[parameters('location')]",
+            "kind": "V1",
+            "properties": {
+                "displayName": "[parameters('connectionDisplayName')]",
+                "statuses": [
+                    {
+                        "status": "Ready"
+                    }
+                ],
+                "customParameterValues": {},
+				"parameterValueType": "Alternative",
+                "api": {
+                    "name": "microsoftgraphsecurity",
+                    "displayName": "Microsoft Graph Security",
+                    "description": "The Microsoft Graph Security connector helps to connect different Microsoft and partner security products and services, using a unified schema, to streamline security operations, and improve threat protection, detection, and response capabilities. Learn more about integrating with the Microsoft Graph Security API at https://aka.ms/graphsecuritydocs",
+                    "iconUri": "https://connectoricons-prod.azureedge.net/releases/v1.0.1583/1.0.1583.2865/microsoftgraphsecurity/icon.png",
+                    "brandColor": "#0078D6",
+                    "id": "[concat(subscription().id,'/providers/Microsoft.Web/locations/',parameters('location'),'/managedApis/microsoftgraphsecurity')]",
+                    "type": "Microsoft.Web/locations/managedApis"
+                },
+                "testLinks": []
+            }
+        },
+		{
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2017-07-01",
+            "name": "[parameters('logicAppName')]",
+            "location": "[parameters('location')]",
+			"dependsOn": ["[resourceId('Microsoft.Web/connections', parameters('connection_name'))]"],
+            "identity": {
+                "type": "SystemAssigned"
+            },
+            "properties": {
+                "state": "Enabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "$connections": {
+                            "defaultValue": {},
+                            "type": "Object"
+                        }
+                    },
+                    "triggers": {
+                        "Recurrence": {
+                            "recurrence": {
+                                "frequency": "Day",
+                                "interval": 1,
+                                "schedule": {
+                                    "hours": [
+                                        "1"
+                                    ]
+                                }
+                            },
+                            "evaluatedRecurrence": {
+                                "frequency": "Day",
+                                "interval": 1,
+                                "schedule": {
+                                    "hours": [
+                                        "1"
+                                    ]
+                                }
+                            },
+                            "type": "Recurrence"
+                        }
+                    },
+                    "actions": {
+                        "For_each": {
+                            "foreach": "@body('Parse_Main_JSON')?['data']",
+                            "actions": {
+                                "Condition": {
+                                    "actions": {
+                                        "Set_variable": {
+                                            "runAfter": {},
+                                            "type": "SetVariable",
+                                            "inputs": {
+                                                "name": "sentinelThreatType",
+                                                "value": "Malware"
+                                            }
+                                        }
+                                    },
+                                    "runAfter": {},
+                                    "else": {
+                                        "actions": {
+                                            "Set_variable_2": {
+                                                "runAfter": {},
+                                                "type": "SetVariable",
+                                                "inputs": {
+                                                    "name": "sentinelThreatType",
+                                                    "value": "C2"
+                                                }
+                                            }
+                                        }
+                                    },
+                                    "expression": {
+                                        "or": [
+                                            {
+                                                "equals": [
+                                                    "@items('For_each')?['threat_type']",
+                                                    "payload_delivery"
+                                                ]
+                                            },
+                                            {
+                                                "equals": [
+                                                    "@items('For_each')?['threat_type']",
+                                                    "payload"
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    "type": "If"
+                                },
+                                "Condition_2": {
+                                    "actions": {
+                                        "Create_tiIndicator": {
+                                            "runAfter": {},
+                                            "type": "ApiConnection",
+                                            "inputs": {
+                                                "body": {
+                                                    "action": "alert",
+                                                    "additionalInformation": "@{items('For_each')?['malware_malpedia']},@{items('For_each')?['ioc_type_desc']},@{items('For_each')?['reporter']}",
+                                                    "confidence": "@items('For_each')?['confidence_level']",
+                                                    "description": "@{items('For_each')?['id']} ",
+                                                    "domainName": "@items('For_each')?['ioc']",
+                                                    "expirationDateTime": "@{getFutureTime(90, 'Day')}",
+                                                    "externalId": "@items('For_each')?['id']",
+                                                    "malwareFamilyNames": [
+                                                        "@items('For_each')?['malware']",
+                                                        "@items('For_each')?['malware_alias']",
+                                                        "@items('For_each')?['malware_printable']"
+                                                    ],
+                                                    "tags": "@items('For_each')?['tags']",
+                                                    "targetProduct": "Azure Sentinel",
+                                                    "threatType": "@variables('sentinelThreatType')",
+                                                    "tlpLevel": "unknown"
+                                                },
+                                                "host": {
+                                                    "connection": {
+                                                        "name": "@parameters('$connections')['microsoftgraphsecurity_1']['connectionId']"
+                                                    }
+                                                },
+                                                "method": "post",
+                                                "path": "/beta/security/tiIndicators"
+                                            }
+                                        }
+                                    },
+                                    "runAfter": {
+                                        "Condition": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "else": {
+                                        "actions": {
+                                            "Condition_3": {
+                                                "actions": {
+                                                    "Create_tiIndicator2": {
+                                                        "runAfter": {},
+                                                        "type": "ApiConnection",
+                                                        "inputs": {
+                                                            "body": {
+                                                                "action": "alert",
+                                                                "additionalInformation": "@{items('For_each')?['malware_malpedia']},@{items('For_each')?['ioc_type_desc']},@{items('For_each')?['reporter']}",
+                                                                "confidence": "@items('For_each')?['confidence_level']",
+                                                                "description": "@items('For_each')?['id']",
+                                                                "expirationDateTime": "@{getFutureTime(90, 'Day')}",
+                                                                "externalId": "@items('For_each')?['id']",
+                                                                "malwareFamilyNames": [
+                                                                    "@items('For_each')?['malware']",
+                                                                    "@items('For_each')?['malware_alias']",
+                                                                    "@items('For_each')?['malware_printable']"
+                                                                ],
+                                                                "tags": "@items('For_each')?['tags']",
+                                                                "targetProduct": "Azure Sentinel",
+                                                                "threatType": "@variables('sentinelThreatType')",
+                                                                "tlpLevel": "unknown",
+                                                                "url": "@items('For_each')?['ioc']"
+                                                            },
+                                                            "host": {
+                                                                "connection": {
+                                                                    "name": "@parameters('$connections')['microsoftgraphsecurity_1']['connectionId']"
+                                                                }
+                                                            },
+                                                            "method": "post",
+                                                            "path": "/beta/security/tiIndicators"
+                                                        }
+                                                    }
+                                                },
+                                                "runAfter": {},
+                                                "else": {
+                                                    "actions": {
+                                                        "Condition_4": {
+                                                            "actions": {
+                                                                "Create_tiIndicator_3": {
+                                                                    "runAfter": {
+                                                                        "Set_Port_from_IoC": [
+                                                                            "Succeeded"
+                                                                        ]
+                                                                    },
+                                                                    "type": "ApiConnection",
+                                                                    "inputs": {
+                                                                        "body": {
+                                                                            "action": "alert",
+                                                                            "additionalInformation": "@{items('For_each')?['malware_malpedia']},@{items('For_each')?['ioc_type_desc']},@{items('For_each')?['reporter']}",
+                                                                            "confidence": "@items('For_each')?['confidence_level']",
+                                                                            "description": "@items('For_each')?['id']",
+                                                                            "expirationDateTime": "@{getFutureTime(90, 'Day')}",
+                                                                            "externalId": "@items('For_each')?['id']",
+                                                                            "malwareFamilyNames": [
+                                                                                "@items('For_each')?['malware']",
+                                                                                "@items('For_each')?['malware_alias']",
+                                                                                "@items('For_each')?['malware_printable']"
+                                                                            ],
+                                                                            "networkIPv4": "@variables('iocIP')",
+                                                                            "networkPort": "@variables('iocPort')",
+                                                                            "tags": "@items('For_each')?['tags']",
+                                                                            "targetProduct": "Azure Sentinel",
+                                                                            "threatType": "@variables('sentinelThreatType')",
+                                                                            "tlpLevel": "unknown"
+                                                                        },
+                                                                        "host": {
+                                                                            "connection": {
+                                                                                "name": "@parameters('$connections')['microsoftgraphsecurity_1']['connectionId']"
+                                                                            }
+                                                                        },
+                                                                        "method": "post",
+                                                                        "path": "/beta/security/tiIndicators"
+                                                                    }
+                                                                },
+                                                                "Set_IP_from_IoC": {
+                                                                    "runAfter": {
+                                                                        "Set_variable_3": [
+                                                                            "Succeeded"
+                                                                        ]
+                                                                    },
+                                                                    "type": "SetVariable",
+                                                                    "inputs": {
+                                                                        "name": "iocIP",
+                                                                        "value": "@{split(variables('storeIPport'),':')[0]}"
+                                                                    }
+                                                                },
+                                                                "Set_Port_from_IoC": {
+                                                                    "runAfter": {
+                                                                        "Set_IP_from_IoC": [
+                                                                            "Succeeded"
+                                                                        ]
+                                                                    },
+                                                                    "type": "SetVariable",
+                                                                    "inputs": {
+                                                                        "name": "iocPort",
+                                                                        "value": "@split(variables('storeIPport'),':')[1]"
+                                                                    }
+                                                                },
+                                                                "Set_variable_3": {
+                                                                    "runAfter": {},
+                                                                    "type": "SetVariable",
+                                                                    "inputs": {
+                                                                        "name": "storeIPport",
+                                                                        "value": "@items('For_each')?['ioc']"
+                                                                    }
+                                                                }
+                                                            },
+                                                            "runAfter": {},
+                                                            "else": {
+                                                                "actions": {
+                                                                    "Condition_5": {
+                                                                        "actions": {
+                                                                            "Create_tiIndicator_4": {
+                                                                                "runAfter": {},
+                                                                                "type": "ApiConnection",
+                                                                                "inputs": {
+                                                                                    "body": {
+                                                                                        "action": "alert",
+                                                                                        "additionalInformation": "@{items('For_each')?['malware_malpedia']},@{items('For_each')?['ioc_type_desc']},@{items('For_each')?['reporter']}",
+                                                                                        "confidence": "@items('For_each')?['confidence_level']",
+                                                                                        "description": "@items('For_each')?['id']",
+                                                                                        "expirationDateTime": "@{getFutureTime(90, 'Day')}",
+                                                                                        "externalId": "@items('For_each')?['id']",
+                                                                                        "fileHashType": "unknown",
+                                                                                        "fileHashValue": "@{items('For_each')?['ioc']}",
+                                                                                        "malwareFamilyNames": [
+                                                                                            "@items('For_each')?['malware']",
+                                                                                            "@items('For_each')?['malware_alias']",
+                                                                                            "@items('For_each')?['malware_printable']"
+                                                                                        ],
+                                                                                        "tags": "@items('For_each')?['tags']",
+                                                                                        "targetProduct": "Azure Sentinel",
+                                                                                        "threatType": "@variables('sentinelThreatType')",
+                                                                                        "tlpLevel": "unknown"
+                                                                                    },
+                                                                                    "host": {
+                                                                                        "connection": {
+                                                                                            "name": "@parameters('$connections')['microsoftgraphsecurity_1']['connectionId']"
+                                                                                        }
+                                                                                    },
+                                                                                    "method": "post",
+                                                                                    "path": "/beta/security/tiIndicators"
+                                                                                }
+                                                                            }
+                                                                        },
+                                                                        "runAfter": {},
+                                                                        "expression": {
+                                                                            "and": [
+                                                                                {
+                                                                                    "contains": [
+                                                                                        "@items('For_each')?['ioc_type']",
+                                                                                        "hash"
+                                                                                    ]
+                                                                                }
+                                                                            ]
+                                                                        },
+                                                                        "type": "If"
+                                                                    }
+                                                                }
+                                                            },
+                                                            "expression": {
+                                                                "and": [
+                                                                    {
+                                                                        "equals": [
+                                                                            "@items('For_each')?['ioc_type']",
+                                                                            "ip:port"
+                                                                        ]
+                                                                    }
+                                                                ]
+                                                            },
+                                                            "type": "If"
+                                                        }
+                                                    }
+                                                },
+                                                "expression": {
+                                                    "and": [
+                                                        {
+                                                            "equals": [
+                                                                "@items('For_each')?['ioc_type']",
+                                                                "url"
+                                                            ]
+                                                        }
+                                                    ]
+                                                },
+                                                "type": "If"
+                                            }
+                                        }
+                                    },
+                                    "expression": {
+                                        "and": [
+                                            {
+                                                "equals": [
+                                                    "@items('For_each')?['ioc_type']",
+                                                    "domain"
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    "type": "If"
+                                },
+                                "Delay": {
+                                    "runAfter": {
+                                        "Condition_2": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "Wait",
+                                    "inputs": {
+                                        "interval": {
+                                            "count": 3,
+                                            "unit": "Second"
+                                        }
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "Parse_Main_JSON": [
+                                    "Succeeded"
+                                ]
+                            },
+							"runtimeConfiguration": {
+								"concurrency": {
+									"repetitions": 1
+								}
+							},
+                            "type": "Foreach"
+                        },
+                        "HTTP": {
+                            "runAfter": {
+                                "Set_Sentinel_Threat_Type": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Http",
+                            "inputs": {
+                                "body": {
+                                    "days": 1,
+                                    "query": "get_iocs"
+                                },
+                                "method": "POST",
+                                "uri": "https://threatfox-api.abuse.ch/api/v1/"
+                            }
+                        },
+                        "Only_IP": {
+                            "runAfter": {
+                                "To_store_the_IoC_type_ip-port": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "iocIP",
+                                        "type": "string"
+                                    }
+                                ]
+                            }
+                        },
+                        "Only_Port": {
+                            "runAfter": {
+                                "Only_IP": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "iocPort",
+                                        "type": "string"
+                                    }
+                                ]
+                            }
+                        },
+                        "Parse_Main_JSON": {
+                            "runAfter": {
+                                "HTTP": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "ParseJson",
+                            "inputs": {
+                                "content": "@body('HTTP')",
+                                "schema": {
+                                    "properties": {
+                                        "data": {
+                                            "items": {
+                                                "properties": {
+                                                    "comment": {},
+                                                    "confidence_level": {},
+                                                    "credits": {},
+                                                    "first_seen": {},
+                                                    "id": {},
+                                                    "ioc": {},
+                                                    "ioc_type": {},
+                                                    "ioc_type_desc": {},
+                                                    "last_seen": {},
+                                                    "malware": {},
+                                                    "malware_alias": {},
+                                                    "malware_malpedia": {},
+                                                    "malware_printable": {},
+                                                    "malware_samples": {},
+                                                    "reference": {},
+                                                    "reporter": {},
+                                                    "tags": {},
+                                                    "threat_type": {},
+                                                    "threat_type_desc": {}
+                                                },
+                                                "type": "object"
+                                            },
+                                            "type": "array"
+                                        },
+                                        "query_status": {}
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "Set_Sentinel_Threat_Type": {
+                            "runAfter": {
+                                "Only_Port": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "sentinelThreatType",
+                                        "type": "string",
+                                        "value": "Malware"
+                                    }
+                                ]
+                            }
+                        },
+                        "To_store_the_IoC_type_ip-port": {
+                            "runAfter": {},
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "storeIPport",
+                                        "type": "string"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "outputs": {}
+                },
+                "parameters": {
+                    "$connections": {
+                        "value": {
+                            "microsoftgraphsecurity_1": {
+                                "connectionId": "[concat(subscription().id,'/resourceGroups/',parameters('resourceGroupName'),'/providers/Microsoft.Web/connections/',parameters('connection_name'))]",
+                                "connectionName": "[parameters('connection_name')]",
+                                "connectionProperties": {
+                                    "authentication": {
+                                        "type": "ManagedServiceIdentity"
+                                    }
+                                },
+                                "id": "[concat(subscription().id,'/providers/Microsoft.Web/locations/',parameters('location'),'/managedApis/microsoftgraphsecurity')]"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    ]
+}
